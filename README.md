@@ -1,207 +1,148 @@
 # Customer Churn Prediction
 
-Machine Learning-проект по прогнозированию оттока клиентов телекоммуникационной компании.
+ML-проект по прогнозированию оттока клиентов телекоммуникационной компании.
 
-Проект построен как последовательный ML pipeline: от исследовательского анализа данных и baseline-модели до подбора гиперпараметров, выбора threshold, финальной оценки и использования сохранённой модели для новых данных.
+Проект охватывает полный цикл машинного обучения: исследовательский анализ данных, построение baseline-модели, подбор гиперпараметров, оптимизацию порога классификации, сравнение моделей, финальную оценку и применение обученной модели для новых данных.
 
 ---
 
-## 📌 Project Overview
+## Постановка задачи
 
-**Задача:** предсказать, уйдёт ли клиент телекоммуникационной компании.
+Задача проекта — построить модель бинарной классификации, которая прогнозирует, уйдёт ли клиент компании.
 
 Целевая переменная:
 
-- `Churn = 0` — клиент остался;
-- `Churn = 1` — клиент ушёл.
+- `0` — клиент остаётся;
+- `1` — клиент уходит.
 
-Основной акцент проекта — построение воспроизводимого pipeline с корректным разделением train/test, preprocessing внутри `Pipeline`, подбором гиперпараметров через `GridSearchCV` и выбором threshold на out-of-fold предсказаниях.
+Для задачи churn особенно важно не только общее качество классификации, но и способность находить клиентов, склонных к уходу. Поэтому при выборе модели основное внимание уделяется **Recall** и **F1-score**.
 
 ---
 
-## 📊 Dataset
+## Датасет
 
 Используется датасет **Telco Customer Churn**.
 
-Источник: [Kaggle — Telco Customer Churn](https://www.kaggle.com/datasets/blastchar/telco-customer-churn)
+Он содержит информацию о клиентах телекоммуникационной компании:
+
+- продолжительность обслуживания (`tenure`);
+- ежемесячные платежи (`MonthlyCharges`);
+- общую сумму платежей (`TotalCharges`);
+- тип контракта;
+- способ оплаты;
+- тип интернет-услуг;
+- демографические характеристики;
+- дополнительные услуги.
 
 Размер исходного датасета:
 
-- **7043 наблюдения**
-- **21 признак**
-
-Целевая переменная — `Churn`.
-
-В исходных данных присутствует умеренный дисбаланс классов:
-
-- около **73.5%** — `Churn = 0`;
-- около **26.5%** — `Churn = 1`.
+- **7043 наблюдения**;
+- **21 столбец**;
+- доля клиентов с `Churn = Yes` — около **26,5%**.
 
 ---
 
-## 🔎 Exploratory Data Analysis
+## Структура проекта
 
-EDA выполнен в `01_eda.ipynb`.
+```text
+customer_churn_prediction/
+│
+├── data/
+│   └── raw/
+│       └── WA_Fn-UseC_-Telco-Customer-Churn.csv
+│
+├── models/
+│   └── churn_random_forest.joblib
+│
+├── notebooks/
+│   ├── 01_eda.ipynb
+│   ├── 02_baseline.ipynb
+│   ├── 03_modeling.ipynb
+│   └── 04_evaluation.ipynb
+│
+├── predict.py
+├── requirements.txt
+├── .gitignore
+└── README.md
+```
 
-Основные этапы:
+---
 
-- проверка структуры и качества данных;
+## Этапы проекта
+
+### 1. EDA — `01_eda.ipynb`
+
+На первом этапе выполнен исследовательский анализ данных:
+
+- первичный анализ датасета;
 - анализ целевой переменной;
 - обработка `TotalCharges`;
 - анализ числовых признаков;
 - анализ категориальных признаков;
-- корреляционный анализ числовых признаков;
-- формирование правил preprocessing.
+- сравнение клиентов с разным статусом оттока;
+- анализ корреляций.
 
-### Основные наблюдения
-
-Наиболее заметные различия в доле оттока наблюдаются для:
-
-- `Contract`;
-- `InternetService`;
-- `PaymentMethod`;
-- `TechSupport`;
-- `OnlineSecurity`.
-
-Ушедшие клиенты в среднем имеют меньший `tenure` и более высокие `MonthlyCharges`.
-
-Также наблюдается:
-
-- сильная положительная связь между `tenure` и `TotalCharges`;
-- умеренная положительная связь между `MonthlyCharges` и `TotalCharges`.
-
-Эти зависимости рассматриваются как статистические взаимосвязи, а не как доказательство причинности.
-
-### `TotalCharges`
-
-В исходном датасете `TotalCharges` представлен как строковый признак.
-
-После преобразования в числовой тип обнаружены **11 пропущенных значений**. Они относятся к клиентам с `tenure = 0`.
-
-В проекте используется правило:
-
-```text
-TotalCharges = 0, если tenure = 0
-```
+В ходе EDA были обнаружены различия между оставшимися и ушедшими клиентами. В частности, ушедшие клиенты в среднем имеют меньший `tenure` и более высокие `MonthlyCharges`.
 
 ---
 
-## ⚙️ Preprocessing
+### 2. Baseline — `02_baseline.ipynb`
 
-Preprocessing выполняется внутри `scikit-learn Pipeline`.
+В качестве baseline используется **Logistic Regression**.
 
-### Числовые признаки
+Предобработка выполняется внутри `Pipeline`:
 
-Используется:
+- числовые признаки → `StandardScaler`;
+- категориальные признаки → `OneHotEncoder`;
+- `customerID` исключается из признаков.
 
-```python
-StandardScaler()
-```
-
-### Категориальные признаки
-
-Используется:
-
-```python
-OneHotEncoder(
-    drop="first",
-    handle_unknown="ignore"
-)
-```
-
-`customerID` исключается, поскольку является идентификатором клиента.
-
-Вся предварительная обработка обучается только на `X_train`, что предотвращает утечку информации из тестовой выборки.
-
----
-
-## 🧪 Train/Test Split
-
-Данные разделяются в соотношении **80/20** со стратификацией по целевой переменной.
-
-Тестовая выборка сохраняется до этапа финальной оценки.
-
-Она **не используется** для:
-
-- выбора гиперпараметров;
-- выбора threshold;
-- обучения preprocessing.
-
----
-
-## 🤖 Models
-
-В проекте исследуются три модели:
-
-1. Logistic Regression;
-2. Decision Tree;
-3. Random Forest.
-
-### Baseline
-
-В качестве baseline используется Logistic Regression со стандартным:
+Для baseline используется стандартный:
 
 ```text
 threshold = 0.5
 ```
 
-Baseline формирует исходную точку для дальнейшего сравнения.
+Полученный результат используется как отправная точка для дальнейшего сравнения.
 
 ---
 
-## 🔧 Hyperparameter Optimization
+### 3. Обучение и оптимизация — `03_modeling.ipynb`
 
-Для финального подбора гиперпараметров используется `GridSearchCV` с **5-fold cross-validation**.
+Исследуются три модели:
 
-Оптимизируемая метрика:
+- Logistic Regression;
+- Decision Tree;
+- Random Forest.
+
+Для подбора гиперпараметров используется `GridSearchCV` со стратифицированной 5-fold cross-validation.
+
+Основная метрика оптимизации:
 
 ```text
 F1-score
 ```
 
-### Logistic Regression
+#### Logistic Regression
 
-Исследуемые параметры:
-
-```text
-C = {0.01, 0.1, 1, 10, 100}
-class_weight = {None, balanced}
-```
-
-Финальная конфигурация:
+Лучшие параметры:
 
 ```text
 C = 0.1
 class_weight = balanced
 ```
 
-### Decision Tree
+#### Decision Tree
 
-Исследуемые параметры:
-
-```text
-max_depth = {2, 3, 4, 5, 6, 8, 10}
-min_samples_leaf = {1, 2, 5, 10, 20}
-```
-
-Финальная конфигурация:
+Подбираются:
 
 ```text
-max_depth = 8
-min_samples_leaf = 20
+max_depth
+min_samples_leaf
 ```
 
-### Random Forest
+#### Random Forest
 
-Исследуемые параметры:
-
-```text
-n_estimators = {100, 200, 500}
-max_depth = {6, 8, 10}
-min_samples_leaf = {1, 5, 10}
-```
-
-Финальная конфигурация:
+Лучшие параметры:
 
 ```text
 n_estimators = 500
@@ -211,167 +152,111 @@ min_samples_leaf = 10
 
 ---
 
-## 🎚️ Threshold Selection
+## Оптимизация threshold
 
-Помимо гиперпараметров модели, исследуется порог классификации.
+Стандартный порог `0.5` не всегда является оптимальным для задачи churn.
 
-После выбора гиперпараметров threshold подбирается на **out-of-fold предсказаниях `X_train`**.
+Для выбора порога используются **out-of-fold (OOF) предсказания** на обучающей выборке. Это позволяет подобрать threshold, не используя тестовую выборку для его оптимизации.
 
-Проверяются значения:
+Полученные пороги:
 
-```text
-0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8
-```
-
-Тестовая выборка при выборе threshold не используется.
-
-Финальные значения:
-
-| Model | Threshold |
+| Модель | Threshold |
 |---|---:|
-| Logistic Regression | 0.5 |
+| Logistic Regression | 0.6 |
 | Decision Tree | 0.3 |
 | Random Forest | 0.3 |
 
-Threshold применяется после получения вероятности класса `Churn = 1`:
-
-```python
-y_pred = (y_proba >= threshold).astype(int)
-```
+Снижение threshold увеличивает количество клиентов, которых модель относит к потенциальным churn-клиентам. Это позволяет повысить Recall, но одновременно приводит к росту числа False Positive.
 
 ---
 
-## 📈 Final Evaluation
+## Сравнение моделей
 
-Финальная оценка выполняется один раз на отложенной тестовой выборке.
+Финальное сравнение на тестовой выборке:
 
-| Model | Threshold | Accuracy | Precision | Recall | F1 | ROC-AUC |
+| Модель | Threshold | Accuracy | Precision | Recall | F1 | ROC-AUC |
 |---|---:|---:|---:|---:|---:|---:|
-| Logistic Regression | 0.5 | 0.742 | 0.510 | 0.783 | 0.617 | 0.841 |
-| Decision Tree | 0.3 | 0.751 | 0.522 | 0.730 | 0.609 | 0.820 |
-| **Random Forest** | **0.3** | **0.759** | **0.532** | **0.778** | **0.632** | **0.845** |
+| Logistic Regression | 0.6 | 0.764 | 0.543 | 0.698 | 0.611 | 0.841 |
+| Decision Tree | 0.3 | 0.732 | 0.497 | 0.767 | 0.604 | 0.827 |
+| **Random Forest** | **0.3** | **0.757** | **0.529** | **0.775** | **0.629** | **0.844** |
 
-### Final Model
+---
 
-В качестве финальной модели проекта используется **Random Forest** со следующей конфигурацией:
+## Финальная модель
+
+В качестве финальной модели выбран **Random Forest**.
+
+Причина выбора — лучший результат по **F1-score** и **ROC-AUC**, а также высокий Recall.
+
+Финальная конфигурация:
 
 ```text
-n_estimators     = 500
-max_depth        = 10
+n_estimators = 500
+max_depth = 10
 min_samples_leaf = 10
-threshold        = 0.3
+threshold = 0.3
 ```
 
-Результаты на тестовой выборке:
+Финальные показатели:
 
 ```text
-Accuracy  = 0.759
-Precision = 0.532
-Recall    = 0.778
-F1        = 0.632
-ROC-AUC   = 0.845
+Accuracy  ≈ 0.757
+Precision ≈ 0.529
+Recall    ≈ 0.775
+F1        ≈ 0.629
+ROC-AUC   ≈ 0.844
 ```
-
-Выбор основан на сравнении исследованных моделей на отложенной тестовой выборке. Random Forest показал наиболее высокие значения F1-score и ROC-AUC среди рассмотренных конфигураций.
 
 ---
 
-## 🔍 Error Analysis
+## Оценка модели — `04_evaluation.ipynb`
 
-Для анализа ошибок используются:
+Для финальной модели выполнены:
 
-- Confusion Matrix;
-- False Positive (FP);
-- False Negative (FN);
-- ROC Curve;
-- Precision-Recall Curve;
-- распределения предсказанных вероятностей.
+- построение Confusion Matrix;
+- построение ROC-кривой;
+- расчёт ROC-AUC;
+- анализ распределения предсказанных вероятностей;
+- анализ ошибок классификации.
 
-Финальные confusion matrices:
-
-### Logistic Regression
-
-```text
-[[753 282]
- [ 81 293]]
-```
-
-### Decision Tree
-
-```text
-[[785 250]
- [101 273]]
-```
-
-### Random Forest
-
-```text
-[[779 256]
- [ 83 291]]
-```
-
-Анализ FP/FN позволяет отдельно рассматривать:
-
-- клиентов, ошибочно классифицированных как ушедшие;
-- ушедших клиентов, которых модель пропустила.
+Особое внимание уделяется Recall, поскольку в задаче прогнозирования оттока важно обнаружить как можно больше клиентов, которые действительно могут уйти.
 
 ---
 
-## 💾 Saved Model
+## Использование модели
 
-Финальная модель сохраняется как полный `scikit-learn Pipeline`:
+Обученная модель и выбранный threshold сохраняются в:
 
 ```text
 models/churn_random_forest.joblib
 ```
 
-Внутри Pipeline находятся:
+В сохранённом объекте находятся:
 
-```text
-Pipeline
-├── ColumnTransformer
-│   ├── StandardScaler
-│   └── OneHotEncoder
-│
-└── RandomForestClassifier
-```
+- обученный preprocessing и Random Forest Pipeline;
+- выбранный threshold.
 
-Сохранение всего Pipeline позволяет при inference автоматически применять те же preprocessing-преобразования, которые использовались при обучении.
+Благодаря этому при применении модели не требуется отдельно выполнять масштабирование и кодирование признаков — они уже являются частью Pipeline.
 
----
-
-## 🚀 Prediction
-
-Для новых данных используется:
-
-```text
-predict.py
-```
-
-Запуск:
+### Запуск предсказаний
 
 ```bash
 python predict.py path/to/input.csv
 ```
 
-Например:
+Результат содержит:
 
-```bash
-python predict.py data/new_customers.csv
+```text
+Churn_Probability
+Churn_Prediction
 ```
 
-Скрипт:
+где:
 
-1. загружает сохранённый Pipeline;
-2. читает CSV;
-3. удаляет `customerID`;
-4. преобразует `TotalCharges` в числовой формат;
-5. обрабатывает `TotalCharges` для клиентов с `tenure = 0`;
-6. получает вероятность `P(Churn = 1)`;
-7. применяет `threshold = 0.3`;
-8. выводит вероятность и итоговый прогноз.
+- `Churn_Probability` — предсказанная вероятность оттока;
+- `Churn_Prediction` — итоговый класс, полученный с использованием threshold `0.3`.
 
-Пример результата:
+Пример:
 
 ```text
 Churn_Probability  Churn_Prediction
@@ -384,111 +269,60 @@ Churn_Probability  Churn_Prediction
 
 ---
 
-## 📁 Project Structure
-
-```text
-customer_churn_prediction/
-│
-├── data/
-│   └── ...
-│
-├── models/
-│   └── churn_random_forest.joblib
-│
-├── notebooks/
-│   ├── 01_eda.ipynb
-│   ├── 02_baseline.ipynb
-│   ├── 03_modeling.ipynb
-│   └── 04_evaluation.ipynb
-│
-├── predict.py
-├── README.md
-├── requirements.txt
-└── .gitignore
-```
-
----
-
-## 🛠️ Technologies
+## Технологии
 
 - Python
 - pandas
 - NumPy
 - scikit-learn
-- Matplotlib
-- Seaborn
+- matplotlib
+- seaborn
+- joblib
 - Jupyter Notebook
-- Joblib
 
 ---
 
-## ▶️ Installation
+## Использованные методы
 
-Clone the repository:
+В проекте продемонстрированы:
 
-```bash
-git clone <repository-url>
-cd customer_churn_prediction
-```
-
-Create and activate a virtual environment:
-
-```bash
-python -m venv .venv
-```
-
-Windows PowerShell:
-
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
+- Exploratory Data Analysis;
+- обработка пропущенных значений;
+- масштабирование числовых признаков;
+- One-Hot Encoding;
+- `Pipeline`;
+- Logistic Regression;
+- Decision Tree;
+- Random Forest;
+- `GridSearchCV`;
+- Stratified K-Fold Cross-Validation;
+- Out-of-Fold predictions;
+- оптимизация threshold;
+- Confusion Matrix;
+- ROC Curve;
+- ROC-AUC;
+- анализ ошибок;
+- сохранение модели через `joblib`;
+- inference через отдельный `predict.py`.
 
 ---
 
-## 📚 Notebook Pipeline
+## Воспроизводимость
 
-Проект разделён на четыре этапа:
+Для экспериментов используется фиксированное значение:
 
 ```text
-01_eda
-   ↓
-Исследование данных
-   ↓
-02_baseline
-   ↓
-Baseline Logistic Regression
-   ↓
-03_modeling
-   ↓
-GridSearchCV + OOF threshold selection
-   ↓
-04_evaluation
-   ↓
-Финальная оценка и выбор модели
+random_state = 42
 ```
+
+Предобработка и модель объединены в единый `Pipeline`. Это позволяет применять одинаковые преобразования при обучении и при работе с новыми данными.
 
 ---
 
-## 📌 Project Status
+## Заключение
 
-**Version 1.0 — completed**
+В проекте реализован полный ML-пайплайн прогнозирования оттока клиентов: от первичного анализа данных до сохранения обученной модели и её использования для предсказаний.
 
-Текущая версия содержит полный цикл:
+Среди рассмотренных моделей наилучший результат показал Random Forest с F1-score около `0.629` и ROC-AUC около `0.844`.
 
-- EDA;
-- preprocessing;
-- baseline;
-- несколько ML-моделей;
-- hyperparameter optimization;
-- threshold selection;
-- final evaluation;
-- error analysis;
-- сохранение модели;
-- inference через `predict.py`.
-
+Использование threshold `0.3` позволяет модели уделять больше внимания обнаружению потенциально уходящих клиентов, что соответствует специфике задачи churn prediction.
